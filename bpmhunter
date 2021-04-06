@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+import requests
+import argparse
+import json
+import re
+import sys
+import itertools
+from progress.bar import ShadyBar
+
+'''
+in web app have 
+
+SONG LIST BY CLOSEST BPM
+
+REDO OF OPTIONS IF USER DOES NOT LIKE THE SONGS DISPLAYED 
+
+HAVE PREVIEW OF SONG PLAYABLE IN APP
+
+QUERY GENIUS FOR SONG LYRICS 
+
+MAKE IT LOOK GOOD ON MOBILE VIEW
+'''
+
+parser = argparse.ArgumentParser(description='Get recently played songs from bpm')
+parser.add_argument("-bpm", "--beats-per-minute", required=True, help="Interger beats per minute")
+parser.add_argument("-t", "--token", required=True, help="Spotify Bearer Token")
+parser.add_argument("-l", "--limit", required=False, help="Limit songs displayed")
+args = vars(parser.parse_args())
+target_bpm, token, limit = args["beats_per_minute"], args["token"], args["limit"]
+if limit is None or int(limit) > 50:
+    limit = 50
+else:
+    limit = int(limit)
+auth_header = {"Authorization": "Bearer " + token}
+get_id = requests.get("https://api.spotify.com/v1/me", headers=auth_header)
+
+if get_id.ok:
+    id = json.loads(get_id.text)["id"]
+else:
+    print("\n\tInvalid Spotify Token. Generate a token here: https://developer.spotify.com/console/get-current-user-top-artists-and-tracks")
+    sys.exit()
+
+url = "https://api.spotify.com/v1/me/top/tracks?time_range=short_term&limit=50"
+
+bar = ShadyBar('Loading ...', max=50)
+
+get_recently_played_tracks = requests.get(url, headers=auth_header)
+track_objects = json.loads(get_recently_played_tracks.text)["items"]
+tracks = []
+for track_object in track_objects:
+    bar.next()
+    track_id = track_object['id']
+    track_artist = track_object['artists'][0]['name']
+    track_name = track_object['name']
+    external_url = track_object['external_urls']['spotify']
+    analysis_url = "https://api.spotify.com/v1/audio-analysis/" + track_id
+    get_track_analysis = requests.get(analysis_url, headers=auth_header)
+    track_analysis = json.loads(get_track_analysis.text)
+    bpm = track_analysis['track']['tempo']
+    bpm_difference = abs(int(target_bpm) - bpm)
+    track = {
+        'id': track_id,
+        'bpm': bpm,
+        'bpm_difference': bpm_difference,
+        'link': external_url,
+        'name': track_name,
+        'artist': track_artist
+    }
+    tracks.append(track)
+bar.finish()
+
+# unsorted array of recently played custom track objects
+a = sorted(tracks, key=lambda x: x['bpm_difference'])
+
+for i, t in enumerate(a):
+    if i == limit + 1:
+        break
+    print('\n')
+    print(t['name'], "by", t['artist'])
+    print("bpm:", t['bpm'])
+    print(t['link'])
+    print('\n')
